@@ -7,6 +7,7 @@
 #include "common.h"
 
 #include "TeachingTipTemplateSettings.h"
+#include "TeachingTipTemplatePartHelpers.h"
 
 #include "TeachingTip.g.h"
 #include "TeachingTip.properties.h"
@@ -20,7 +21,28 @@ public:
     TeachingTip();
 
     // IFrameworkElement
+#pragma region ApplyTemplate
+public:
     void OnApplyTemplate();
+private:
+    void RevokeAllRevokers();
+    void EstablishTemplateParts();
+#pragma region EstablishTemplateSubParts
+    void EstablishRootParts();
+    void DetachRootElementFromContainer(const winrt::Border& container);
+    void EstablishContentRootGrid();
+    void EstablishTailOcculsionGrid();
+    void EstablishHeroContentBorder();
+    void EstablishActionButton();
+    void EstablishAlternateCloseButton();
+    void EstablishCloseButton();
+    void EstablishTailEdgeBorder();
+    void EstablishTailPolygon();
+#pragma endregion
+    void SetupInitialState();
+#pragma endregion
+
+public:
     void OnPropertyChanged(const winrt::DependencyPropertyChangedEventArgs& args);
 
     // ContentControl
@@ -62,24 +84,25 @@ private:
     PropertyChanged_revoker m_automationNameChangedRevoker{};
     PropertyChanged_revoker m_automationIdChangedRevoker{};
     winrt::CoreDispatcher::AcceleratorKeyActivated_revoker m_acceleratorKeyActivatedRevoker{};
-    winrt::UIElement::PreviewKeyDown_revoker m_previewKeyDownForF6Revoker{};
-    // This handler is not required for Winui3 because the framework bug this works around has been fixed.
-    winrt::UIElement::PreviewKeyDown_revoker m_popupPreviewKeyDownForF6Revoker{};
-    winrt::UIElement::PreviewKeyDown_revoker m_lightDismissIndicatorPopupPreviewKeyDownForF6Revoker{};
     winrt::Button::Click_revoker m_closeButtonClickedRevoker{};
     winrt::Button::Click_revoker m_alternateCloseButtonClickedRevoker{};
     winrt::Button::Click_revoker m_actionButtonClickedRevoker{};
     winrt::FrameworkElement::SizeChanged_revoker m_contentSizeChangedRevoker{};
     winrt::FrameworkElement::EffectiveViewportChanged_revoker m_effectiveViewportChangedRevoker{};
     winrt::FrameworkElement::EffectiveViewportChanged_revoker m_targetEffectiveViewportChangedRevoker{};
+    winrt::FrameworkElement::LayoutUpdated_revoker m_targetLayoutUpdatedRevoker{};
     winrt::FrameworkElement::Loaded_revoker m_targetLoadedRevoker{};
     winrt::Popup::Opened_revoker m_popupOpenedRevoker{};
     winrt::Popup::Closed_revoker m_popupClosedRevoker{};
     winrt::Popup::Closed_revoker m_lightDismissIndicatorPopupClosedRevoker{};
+    winrt::CoreWindow::SizeChanged_revoker m_windowSizeChangedRevoker{};
     winrt::Grid::Loaded_revoker m_tailOcclusionGridLoadedRevoker{};
     winrt::XamlRoot::Changed_revoker m_xamlRootChangedRevoker{};
+    // Hold a strong ref to the xamlRoot while we're open so that the changed revoker works.
+    // This can be removed when internal bug #21302432 is fixed.
+    tracker_ref<winrt::XamlRoot> m_xamlRoot{ this };
     winrt::FrameworkElement::ActualThemeChanged_revoker m_actualThemeChangedRevoker{};
-
+    
     void SetPopupAutomationProperties();
     void CreateLightDismissIndicatorPopup();
     bool UpdateTail();
@@ -113,10 +136,7 @@ private:
     void OnAutomationIdChanged(const winrt::IInspectable&, const winrt::IInspectable&);
 
     void OnContentSizeChanged(const winrt::IInspectable&, const winrt::SizeChangedEventArgs& args);
-    void OnF6PreviewKeyDownClicked(const winrt::IInspectable&, const winrt::KeyRoutedEventArgs& args);
-    void OnF6PopupPreviewKeyDownClicked(const winrt::IInspectable&, const winrt::KeyRoutedEventArgs& args);
     void OnF6AcceleratorKeyClicked(const winrt::CoreDispatcher&, const winrt::AcceleratorKeyEventArgs& args);
-    bool HandleF6Clicked(bool fromPopup = false);
     void OnCloseButtonClicked(const winrt::IInspectable&, const winrt::RoutedEventArgs&);
     void OnActionButtonClicked(const winrt::IInspectable&, const winrt::RoutedEventArgs&);
     void OnPopupOpened(const winrt::IInspectable&, const winrt::IInspectable&);
@@ -131,6 +151,7 @@ private:
 
     void SetViewportChangedEvent(const gsl::strict_not_null<winrt::FrameworkElement>& target);
     void RevokeViewportChangedEvent();
+    void WindowSizeChanged(const winrt::CoreWindow&, const winrt::WindowSizeChangedEventArgs&);
     void XamlRootChanged(const winrt::XamlRoot&, const winrt::XamlRootChangedEventArgs&);
     void OnTargetLayoutUpdated(const winrt::IInspectable&, const winrt::IInspectable&);
     void OnTargetLoaded(const winrt::IInspectable&, const winrt::IInspectable&);
@@ -155,21 +176,37 @@ private:
     winrt::Rect GetWindowBounds();
     static std::array<winrt::TeachingTipPlacementMode, 13> GetPlacementFallbackOrder(winrt::TeachingTipPlacementMode preferredPalcement);
     void EstablishShadows();
-    void TrySetCenterPoint(const winrt::IUIElement& element, const winrt::float3& centerPoint);
-    bool ToggleVisibilityForEmptyContent(const wstring_view visibleStateName, const wstring_view collapsedStateName, const winrt::hstring& content);
-    void UpdateButtonAutomationProperties(const winrt::Button button, const winrt::IInspectable content);
+    void TrySetCenterPoint(const winrt::IUIElement9& element, const winrt::float3& centerPoint);
+    bool ToggleTitleVisibilityForEmptyContent();
+    bool ToggleSubtitleVisibilityForEmptyContent();
+
+    template <typename VisualStateGroupEnum>
+    bool ToggleVisibilityForEmptyContent(const VisualStateGroupEnum visibleState, const VisualStateGroupEnum collapsedState, const winrt::hstring& content);
 
     // The tail is designed as an 8x16 pixel shape, however it is actually a 10x20 shape which is partially occluded by the tip content.
     // This is done to get the border of the tip to follow the tail shape without drawing the border on the tip edge of the tail.
-    double TailLongSideActualLength();
-    double TailLongSideLength();
-    double TailShortSideLength();
-    double MinimumTipEdgeToTailEdgeMargin();
-    double MinimumTipEdgeToTailCenter();
+    float TailLongSideActualLength();
+    float TailLongSideLength();
+    float TailShortSideLength();
+    float MinimumTipEdgeToTailEdgeMargin();
+    float MinimumTipEdgeToTailCenter();
 
     winrt::CornerRadius GetTeachingTipCornerRadius();
-    double TopLeftCornerRadius() { return GetTeachingTipCornerRadius().TopLeft; }
-    double TopRightCornerRadius() { return GetTeachingTipCornerRadius().TopRight; }
+    float TopLeftCornerRadius() { return static_cast<float>(GetTeachingTipCornerRadius().TopLeft); }
+    float TopRightCornerRadius() { return static_cast<float>(GetTeachingTipCornerRadius().TopRight); }
+
+
+    template<typename WinRTReturn>
+    WinRTReturn GetTemplatePart(tracker_ref<WinRTReturn>& tracker, TeachingTipNamedTemplatePart namedTemplatePart)
+    {
+        return TeachingTipTemplateHelpers::GetTemplatePart(tracker, namedTemplatePart, *this);
+    }
+
+    template<typename TeachingTipVisualStateGroup>
+    bool GoToState(TeachingTipVisualStateGroup state, bool useTransitions = true)
+    {
+        return TeachingTipTemplateHelpers::GoToState(*this, state, useTransitions = true);
+    }
 
     tracker_ref<winrt::Border> m_container{ this };
 
@@ -208,7 +245,6 @@ private:
 
     winrt::Size m_currentXamlRootSize{ 0,0 };
 
-    bool m_ignoreNextIsOpenChanged{ false };
     bool m_isTemplateApplied{ false };
     bool m_createNewPopupOnOpen{ false };
 
@@ -258,48 +294,27 @@ private:
     }
 
     // These values are shifted by one because this is the 1px highlight that sits adjacent to the tip border.
-    inline winrt::Thickness BottomPlacementTopRightHighlightMargin(double width, double height) { return { (width / 2) + (TailShortSideLength() - 1.0), 0, (TopRightCornerRadius() - 1.0), 0 }; }
-    inline winrt::Thickness BottomRightPlacementTopRightHighlightMargin(double width, double height) { return { MinimumTipEdgeToTailEdgeMargin() + TailLongSideLength() - 1.0, 0, (TopRightCornerRadius() - 1.0), 0 }; }
-    inline winrt::Thickness BottomLeftPlacementTopRightHighlightMargin(double width, double height) { return { width - (MinimumTipEdgeToTailEdgeMargin() + 1.0), 0, (TopRightCornerRadius() - 1.0), 0 }; }
+    inline winrt::Thickness BottomPlacementTopRightHighlightMargin(double width, double height) { return { (width / 2) + (TailShortSideLength() - 1.0f), 0, (TopRightCornerRadius() - 1.0f), 0 }; }
+    inline winrt::Thickness BottomRightPlacementTopRightHighlightMargin(double width, double height) { return { MinimumTipEdgeToTailEdgeMargin() + TailLongSideLength() - 1.0f, 0, (TopRightCornerRadius() - 1.0f), 0 }; }
+    inline winrt::Thickness BottomLeftPlacementTopRightHighlightMargin(double width, double height) { return { width - (MinimumTipEdgeToTailEdgeMargin() + 1.0f), 0, (TopRightCornerRadius() - 1.0f), 0 }; }
     static inline winrt::Thickness constexpr OtherPlacementTopRightHighlightMargin(double width, double height) { return { 0, 0, 0, 0 }; }
 
-    inline winrt::Thickness BottomPlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0), 0, (width / 2) + (TailShortSideLength() - 1.0), 0 }; }
-    inline winrt::Thickness BottomRightPlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0), 0, width - (MinimumTipEdgeToTailEdgeMargin() + 1.0), 0 }; }
-    inline winrt::Thickness BottomLeftPlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0), 0, MinimumTipEdgeToTailEdgeMargin() + TailLongSideLength() - 1.0, 0 }; }
-    inline winrt::Thickness TopEdgePlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0), 1, (TopRightCornerRadius() - 1.0), 0 }; }
+    inline winrt::Thickness BottomPlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0f), 0, (width / 2) + (TailShortSideLength() - 1.0f), 0 }; }
+    inline winrt::Thickness BottomRightPlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0f), 0, width - (MinimumTipEdgeToTailEdgeMargin() + 1.0f), 0 }; }
+    inline winrt::Thickness BottomLeftPlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0f), 0, MinimumTipEdgeToTailEdgeMargin() + TailLongSideLength() - 1.0f, 0 }; }
+    inline winrt::Thickness TopEdgePlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0f), 1, (TopRightCornerRadius() - 1.0f), 0 }; }
     // Shifted by one since the tail edge's border is not accounted for automatically.
-    inline winrt::Thickness LeftEdgePlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0), 1, (TopRightCornerRadius() - 2.0), 0 }; }
-    inline winrt::Thickness RightEdgePlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 2.0), 1, (TopRightCornerRadius() - 1.0), 0 }; }
+    inline winrt::Thickness LeftEdgePlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 1.0f), 1, (TopRightCornerRadius() - 2.0f), 0 }; }
+    inline winrt::Thickness RightEdgePlacementTopLeftHighlightMargin(double width, double height) { return { (TopLeftCornerRadius() - 2.0f), 1, (TopRightCornerRadius() - 1.0f), 0 }; }
 
     static inline double constexpr UntargetedTipFarPlacementOffset(float farWindowCoordinateInCoreWindowSpace, double tipSize, double offset) { return farWindowCoordinateInCoreWindowSpace - (tipSize + s_untargetedTipWindowEdgeMargin + offset); }
-    static inline double constexpr UntargetedTipCenterPlacementOffset(float nearWindowCoordinateInCoreWindowSpace, float farWindowCoordinateInCoreWindowSpace, double tipSize, double nearOffset, double farOffset) { return ((static_cast<double>(nearWindowCoordinateInCoreWindowSpace) + static_cast<double>(farWindowCoordinateInCoreWindowSpace)) / 2)  - (tipSize / 2) + nearOffset - farOffset; }
-    static inline double constexpr UntargetedTipNearPlacementOffset(float nearWindowCoordinateInCoreWindowSpace, double offset) { return static_cast<double>(s_untargetedTipWindowEdgeMargin) + nearWindowCoordinateInCoreWindowSpace + offset; }
+    static inline double constexpr UntargetedTipCenterPlacementOffset(float nearWindowCoordinateInCoreWindowSpace, float farWindowCoordinateInCoreWindowSpace, double tipSize, double nearOffset, double farOffset) { return ((nearWindowCoordinateInCoreWindowSpace + farWindowCoordinateInCoreWindowSpace) / 2)  - (tipSize / 2) + nearOffset - farOffset; }
+    static inline double constexpr UntargetedTipNearPlacementOffset(float nearWindowCoordinateInCoreWindowSpace, double offset) { return s_untargetedTipWindowEdgeMargin + nearWindowCoordinateInCoreWindowSpace + offset; }
 
     static constexpr wstring_view s_scaleTargetName{ L"Scale"sv };
     static constexpr wstring_view s_translationTargetName{ L"Translation"sv };
 
-    static constexpr wstring_view s_containerName{ L"Container"sv };
-    static constexpr wstring_view s_popupName{ L"Popup"sv };
-    static constexpr wstring_view s_tailOcclusionGridName{ L"TailOcclusionGrid"sv };
-    static constexpr wstring_view s_contentRootGridName{ L"ContentRootGrid"sv };
-    static constexpr wstring_view s_nonHeroContentRootGridName{ L"NonHeroContentRootGrid"sv };
-    static constexpr wstring_view s_shadowTargetName{ L"ShadowTarget"sv };
-    static constexpr wstring_view s_heroContentBorderName{ L"HeroContentBorder"sv };
-    static constexpr wstring_view s_titlesStackPanelName{ L"TitlesStackPanel"sv };
-    static constexpr wstring_view s_titleTextBoxName{ L"TitleTextBlock"sv };
-    static constexpr wstring_view s_subtitleTextBoxName{ L"SubtitleTextBlock"sv };
-    static constexpr wstring_view s_alternateCloseButtonName{ L"AlternateCloseButton"sv };
-    static constexpr wstring_view s_mainContentPresenterName{ L"MainContentPresenter"sv };
-    static constexpr wstring_view s_actionButtonName{ L"ActionButton"sv };
-    static constexpr wstring_view s_closeButtonName{ L"CloseButton"sv };
-    static constexpr wstring_view s_tailPolygonName{ L"TailPolygon"sv };
     static constexpr wstring_view s_tailEdgeBorderName{ L"TailEdgeBorder"sv };
-    static constexpr wstring_view s_topTailPolygonHighlightName{ L"TopTailPolygonHighlight"sv };
-    static constexpr wstring_view s_topHighlightLeftName{ L"TopHighlightLeft"sv };
-    static constexpr wstring_view s_topHighlightRightName{ L"TopHighlightRight"sv };
-
-    static constexpr wstring_view s_accentButtonStyleName{ L"AccentButtonStyle" };
-    static constexpr wstring_view s_teachingTipTopHighlightBrushName{ L"TeachingTipTopHighlightBrush" };
 
     static constexpr winrt::float2 s_expandAnimationEasingCurveControlPoint1{ 0.1f, 0.9f };
     static constexpr winrt::float2 s_expandAnimationEasingCurveControlPoint2{ 0.2f, 1.0f };
